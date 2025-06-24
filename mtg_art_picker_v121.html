@@ -137,12 +137,8 @@
             transition: var(--transition);
         }
 
-        .card-entry.unselected-only {
+        .card-entry.hide-selected {
             display: none;
-        }
-
-        .card-entry.unselected-only.show-unselected {
-            display: block;
         }
 
         .card-entry:hover {
@@ -387,6 +383,11 @@
             return fullName.split('(')[0].split('*')[0].trim();
         }
 
+        function getCardKey(fullName, set, number, index) {
+            const cleanName = cleanCardName(fullName);
+            return `${cleanName.toLowerCase()}-${set || ''}-${number || ''}-${index}`;
+        }
+
         async function fetchCardVersions(fullName) {
             try {
                 const cleanName = cleanCardName(fullName);
@@ -423,18 +424,21 @@
             const cards = document.querySelectorAll('.card-entry');
             cards.forEach(card => {
                 const cardId = card.id.replace('card-', '');
-                const isSelected = cardProcessingOrder.some(item => 
-                    item.cardId === cardId && selectedCards[item.fullName]
-                );
+                const cardData = cardProcessingOrder.find(item => item.cardId === cardId);
+                
+                if (!cardData) return;
+                
+                const cardKey = getCardKey(cardData.fullName, cardData.set, cardData.number, cardData.index);
+                const isSelected = selectedCards[cardKey] !== undefined;
                 
                 if (showUnselectedOnly) {
                     if (isSelected) {
-                        card.classList.add('unselected-only');
+                        card.classList.add('hide-selected');
                     } else {
-                        card.classList.remove('unselected-only');
+                        card.classList.remove('hide-selected');
                     }
                 } else {
-                    card.classList.remove('unselected-only');
+                    card.classList.remove('hide-selected');
                 }
             });
         }
@@ -482,7 +486,7 @@
                 
                 const [, qty, fullName, set, number] = match;
                 const cleanName = cleanCardName(fullName);
-                const cardId = cleanName.toLowerCase().replace(/[^a-z0-9]/gi, '-');
+                const cardId = cleanName.toLowerCase().replace(/[^a-z0-9]/gi, '-') + '-' + i; // Add index to make unique
 
                 // Create card entry container
                 const entry = document.createElement('div');
@@ -514,13 +518,14 @@
                     cleanName,
                     qty,
                     set,
-                    number
+                    number,
+                    index: i // Store original index
                 });
             }
 
             // Second pass: Load images for each card
             for (let i = 0; i < cardProcessingOrder.length; i++) {
-                const { line, entry, imageGrid, cardId, fullName, cleanName, qty, set, number } = cardProcessingOrder[i];
+                const { line, entry, imageGrid, cardId, fullName, cleanName, qty, set, number, index } = cardProcessingOrder[i];
                 progressElement.textContent = `Loading images for card ${i+1} of ${cardProcessingOrder.length}...`;
                 
                 try {
@@ -568,14 +573,20 @@
                         img.title = `${card.set.toUpperCase()} #${card.collector_number}`;
                         img.loading = "lazy";
                         img.onclick = () => {
+                            // Only select images in this specific card entry
                             imageGrid.querySelectorAll('img').forEach(i => i.classList.remove('selected'));
                             img.classList.add('selected');
-                            selectedCards[fullName] = {
+                            
+                            // Create a unique key for this specific card instance
+                            const uniqueKey = getCardKey(fullName, set, number, index);
+                            selectedCards[uniqueKey] = {
                                 qty: qty,
                                 name: fullName,
                                 set: card.set.toUpperCase(),
-                                number: card.collector_number
+                                number: card.collector_number,
+                                index: index
                             };
+                            
                             showSelectionCheck(cardId);
                             updateOutputBox();
                             updateCardVisibility();
@@ -608,10 +619,15 @@
         }
 
         function updateOutputBox() {
-            // Maintain original order from the deck list
-            const selected = cardProcessingOrder
-                .filter(item => selectedCards[item.fullName])
-                .map(item => selectedCards[item.fullName]);
+            // Sort by original processing order
+            const sortedCards = [...cardProcessingOrder].sort((a, b) => a.index - b.index);
+            
+            const selected = sortedCards
+                .map(item => {
+                    const cardKey = getCardKey(item.fullName, item.set, item.number, item.index);
+                    return selectedCards[cardKey];
+                })
+                .filter(item => item !== undefined);
             
             const output = selected
                 .map(c => `${c.qty} ${c.name} (${c.set}) ${c.number}`)
